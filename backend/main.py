@@ -1,10 +1,12 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+import pandas as pd
+import io
 import random
 
-app = FastAPI(title="HackMix API", version="1.0.0")
+app = FastAPI(title="Financial Visualization Agent API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -14,66 +16,118 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class Song(BaseModel):
-    title: str
-    artist: str
-    album: Optional[str] = None
-    duration: Optional[str] = None
 
-class VibeRequest(BaseModel):
-    vibe: str
+class ChartData(BaseModel):
+    lineChartData: List[Dict[str, Any]]
+    heatmapData: List[Dict[str, Any]]
 
-class PlaylistResponse(BaseModel):
-    playlist: List[Song]
-    vibe: str
 
-SAMPLE_SONGS = [
-    Song(title="Blinding Lights", artist="The Weeknd", album="After Hours", duration="3:20"),
-    Song(title="Watermelon Sugar", artist="Harry Styles", album="Fine Line", duration="2:54"),
-    Song(title="Levitating", artist="Dua Lipa", album="Future Nostalgia", duration="3:23"),
-    Song(title="Good 4 U", artist="Olivia Rodrigo", album="Sour", duration="2:58"),
-    Song(title="Stay", artist="The Kid LAROI & Justin Bieber", duration="2:21"),
-    Song(title="Peaches", artist="Justin Bieber ft. Daniel Caesar & Giveon", album="Justice", duration="3:18"),
-    Song(title="Industry Baby", artist="Lil Nas X & Jack Harlow", duration="3:32"),
-    Song(title="Heat Waves", artist="Glass Animals", album="Dreamland", duration="3:58"),
-    Song(title="As It Was", artist="Harry Styles", album="Harry's House", duration="2:47"),
-    Song(title="Anti-Hero", artist="Taylor Swift", album="Midnights", duration="3:20"),
-    Song(title="Flowers", artist="Miley Cyrus", album="Endless Summer Vacation", duration="3:20"),
-    Song(title="Unholy", artist="Sam Smith ft. Kim Petras", duration="2:36"),
-    Song(title="Calm Down", artist="Rema & Selena Gomez", duration="3:59"),
-    Song(title="Shivers", artist="Ed Sheeran", album="=", duration="3:27"),
-    Song(title="Ghost", artist="Justin Bieber", album="Justice", duration="2:33"),
-]
+class VisualizationResponse(BaseModel):
+    charts: ChartData
+    query: str
 
-def generate_playlist_for_vibe(vibe: str) -> List[Song]:
-    vibe_lower = vibe.lower()
 
-    playlist_size = random.randint(8, 12)
+def generate_sample_line_chart_data() -> List[Dict[str, Any]]:
+    """Generate sample line chart data for monthly net payouts"""
+    months = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+    ]
+    data = []
 
-    available_songs = SAMPLE_SONGS.copy()
-    random.shuffle(available_songs)
+    for i, month in enumerate(months):
+        data.append(
+            {
+                "month": month,
+                "location1": round(6 + i * 0.8 + random.uniform(-1, 1), 1),
+                "location2": round(3 + i * 0.6 + random.uniform(-0.8, 0.8), 1),
+            }
+        )
 
-    return available_songs[:playlist_size]
+    return data
+
+
+def generate_sample_heatmap_data() -> List[Dict[str, Any]]:
+    """Generate sample heatmap data for anomalies in employer tax spend"""
+    cohorts = ["Cohort 1", "Cohort 2", "Cohort 3", "Cohort 4"]
+    quarters = ["Q1", "Q2", "Q3", "Q4", "Q5"]
+    data = []
+
+    for cohort in cohorts:
+        row = {"cohort": cohort}
+        for quarter in quarters:
+            # Generate values with some anomalies (higher values)
+            if cohort == "Cohort 2" and quarter == "Q3":
+                row[quarter] = random.randint(80, 95)  # Anomaly
+            elif cohort == "Cohort 3" and quarter == "Q2":
+                row[quarter] = random.randint(75, 90)  # Anomaly
+            else:
+                row[quarter] = random.randint(20, 60)  # Normal range
+        data.append(row)
+
+    return data
+
+
+def process_uploaded_file(file: UploadFile) -> pd.DataFrame:
+    """Process uploaded CSV or Excel file"""
+    try:
+        content = file.file.read()
+
+        if file.filename.endswith(".csv"):
+            df = pd.read_csv(io.StringIO(content.decode("utf-8")))
+        elif file.filename.endswith((".xls", ".xlsx")):
+            df = pd.read_excel(io.BytesIO(content))
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported file format")
+
+        return df
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error processing file: {str(e)}")
+
 
 @app.get("/")
 async def root():
-    return {"message": "HackMix API is running!"}
+    return {"message": "Financial Visualization Agent API is running!"}
 
-@app.post("/generate-playlist", response_model=PlaylistResponse)
-async def generate_playlist(request: VibeRequest):
-    if not request.vibe.strip():
-        raise HTTPException(status_code=400, detail="Vibe description cannot be empty")
+
+@app.post("/analyze-data", response_model=VisualizationResponse)
+async def analyze_data(file: UploadFile = File(...), query: str = Form(...)):
+    if not query.strip():
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
 
     try:
-        playlist = generate_playlist_for_vibe(request.vibe)
-        return PlaylistResponse(playlist=playlist, vibe=request.vibe)
+        # Process the uploaded file
+        df = process_uploaded_file(file)
+
+        # For now, return sample data based on the query
+        # In a real implementation, you would analyze the actual data
+        line_chart_data = generate_sample_line_chart_data()
+        heatmap_data = generate_sample_heatmap_data()
+
+        charts = ChartData(lineChartData=line_chart_data, heatmapData=heatmap_data)
+
+        return VisualizationResponse(charts=charts, query=query)
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate playlist: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to analyze data: {str(e)}")
+
 
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
 
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,37 +1,63 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
+import { useDropzone } from 'react-dropzone'
 import axios from 'axios'
+import { Upload, Search, ThumbsUp, ThumbsDown, Download, Share } from 'lucide-react'
+import LineChart from './components/LineChart'
+import HeatmapChart from './components/HeatmapChart'
 
-interface Song {
-  title: string
-  artist: string
-  album?: string
-  duration?: string
+interface ChartData {
+  lineChartData: any[]
+  heatmapData: any[]
 }
 
-interface PlaylistResponse {
-  playlist: Song[]
-  vibe: string
+interface VisualizationResponse {
+  charts: ChartData
+  query: string
 }
 
 function App() {
-  const [vibe, setVibe] = useState('')
-  const [playlist, setPlaylist] = useState<Song[]>([])
+  const [query, setQuery] = useState('')
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
+  const [charts, setCharts] = useState<ChartData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  const generatePlaylist = async () => {
-    if (!vibe.trim()) return
+  const onDrop = useCallback((acceptedFiles: File[]) => {
+    if (acceptedFiles.length > 0) {
+      setUploadedFile(acceptedFiles[0])
+      setError('')
+    }
+  }, [])
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      'text/csv': ['.csv'],
+      'application/vnd.ms-excel': ['.xls'],
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx']
+    },
+    multiple: false
+  })
+
+  const searchData = async () => {
+    if (!query.trim() || !uploadedFile) return
 
     setLoading(true)
     setError('')
 
     try {
-      const response = await axios.post<PlaylistResponse>('http://localhost:8000/generate-playlist', {
-        vibe: vibe.trim()
+      const formData = new FormData()
+      formData.append('file', uploadedFile)
+      formData.append('query', query.trim())
+
+      const response = await axios.post<VisualizationResponse>('http://localhost:8000/analyze-data', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
       })
-      setPlaylist(response.data.playlist)
+      setCharts(response.data.charts)
     } catch (err) {
-      setError('Failed to generate playlist. Please try again.')
+      setError('Failed to analyze data. Please try again.')
       console.error(err)
     } finally {
       setLoading(false)
@@ -39,73 +65,115 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
-      <div className="container mx-auto px-4 py-8">
+    <div className="min-h-screen bg-gray-50">
+      <div className="container mx-auto px-4 py-8 max-w-7xl">
+        {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-white mb-4">
-            🎵 HackMix
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            Warp Agent Challenge
           </h1>
-          <p className="text-xl text-gray-300">
-            Generate a playlist that matches your vibe
-          </p>
         </div>
 
-        <div className="max-w-2xl mx-auto">
-          <div className="bg-white/10 backdrop-blur-lg rounded-lg p-6 mb-6">
-            <div className="flex gap-4">
+        {/* Upload and Search Section */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
+          <div className="flex items-center gap-4">
+            {/* File Upload */}
+            <div
+              {...getRootProps()}
+              className={`flex-1 border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${
+                isDragActive
+                  ? 'border-blue-400 bg-blue-50'
+                  : uploadedFile
+                  ? 'border-green-400 bg-green-50'
+                  : 'border-gray-300 hover:border-gray-400'
+              }`}
+            >
+              <input {...getInputProps()} />
+              <Upload className="mx-auto h-8 w-8 text-gray-400 mb-2" />
+              {uploadedFile ? (
+                <p className="text-sm text-green-600 font-medium">
+                  {uploadedFile.name}
+                </p>
+              ) : (
+                <p className="text-sm text-gray-600">
+                  {isDragActive
+                    ? 'Drop your file here...'
+                    : 'Upload CSV or Excel file'}
+                </p>
+              )}
+            </div>
+
+            {/* Search Input */}
+            <div className="flex-2 flex gap-2">
               <input
                 type="text"
-                value={vibe}
-                onChange={(e) => setVibe(e.target.value)}
-                placeholder="Describe your vibe (e.g., 'chill summer evening', 'high energy workout', 'nostalgic rainy day')"
-                className="flex-1 px-4 py-2 rounded-lg bg-white/20 text-white placeholder-gray-300 border border-white/30 focus:outline-none focus:ring-2 focus:ring-purple-400"
-                onKeyPress={(e) => e.key === 'Enter' && generatePlaylist()}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Show quarterly revenue trends"
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                onKeyPress={(e) => e.key === 'Enter' && searchData()}
               />
               <button
-                onClick={generatePlaylist}
-                disabled={loading || !vibe.trim()}
-                className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                onClick={searchData}
+                disabled={loading || !query.trim() || !uploadedFile}
+                className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
               >
-                {loading ? 'Generating...' : 'Generate'}
+                <Search className="h-4 w-4" />
+                {loading ? 'Analyzing...' : 'Search'}
               </button>
             </div>
           </div>
-
-          {error && (
-            <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-4 mb-6">
-              <p className="text-red-200">{error}</p>
-            </div>
-          )}
-
-          {playlist.length > 0 && (
-            <div className="bg-white/10 backdrop-blur-lg rounded-lg p-6">
-              <h2 className="text-2xl font-bold text-white mb-4">
-                Your Playlist
-              </h2>
-              <div className="space-y-3">
-                {playlist.map((song, index) => (
-                  <div
-                    key={index}
-                    className="bg-white/10 rounded-lg p-4 flex justify-between items-center"
-                  >
-                    <div>
-                      <h3 className="text-white font-semibold">{song.title}</h3>
-                      <p className="text-gray-300">{song.artist}</p>
-                      {song.album && (
-                        <p className="text-gray-400 text-sm">{song.album}</p>
-                      )}
-                    </div>
-                    {song.duration && (
-                      <div className="text-gray-300 text-sm">
-                        {song.duration}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+            <p className="text-red-600">{error}</p>
+          </div>
+        )}
+
+        {/* Charts Section */}
+        {charts && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            {/* Line Chart */}
+            <LineChart
+              data={charts.lineChartData}
+              title="Monthly Net Payouts by Location and Tax Category"
+              xKey="month"
+              yKeys={[
+                { key: 'location1', color: '#3b82f6', name: 'Location 1' },
+                { key: 'location2', color: '#10b981', name: 'Location 2' }
+              ]}
+            />
+
+            {/* Heatmap Chart */}
+            <HeatmapChart
+              data={charts.heatmapData}
+              title="Anomalies in Employer Tax Spend"
+              rowKey="cohort"
+              columns={['Q1', 'Q2', 'Q3', 'Q4', 'Q5']}
+            />
+          </div>
+        )}
+
+        {/* Footer Actions */}
+        {charts && (
+          <div className="flex justify-center gap-4">
+            <button className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors">
+              <ThumbsUp className="h-5 w-5" />
+            </button>
+            <button className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors">
+              <ThumbsDown className="h-5 w-5" />
+            </button>
+            <button className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors">
+              <Download className="h-5 w-5" />
+            </button>
+            <button className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors">
+              <Share className="h-5 w-5" />
+              <span className="text-sm">Share</span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
